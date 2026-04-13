@@ -103,6 +103,9 @@ Shelly requires Ollama summaries. In your local Docker setup:
 AI_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma4:31b-cloud
+OLLAMA_TIMEOUT_MS=90000
+OLLAMA_MAX_RETRIES=2
+OLLAMA_RETRY_BACKOFF_MS=1500
 ```
 
 If Ollama is unavailable at runtime, Shelly fails fast so you do not send non-AI summaries.

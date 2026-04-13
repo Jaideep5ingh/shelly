@@ -53,6 +53,27 @@ function buildPrompt(item: NewsletterItem, maxChars: number): string {
   ].join("\n");
 }
 
+function isAbortError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return error.name === "AbortError" || error.message.includes("aborted");
+}
+
+function isTransientOllamaFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (isAbortError(error)) {
+    return true;
+  }
+  return /network|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN/i.test(error.message);
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function summarizeWithOllama(config: AppConfig, item: NewsletterItem): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.ollamaTimeoutMs);
@@ -98,7 +119,34 @@ export async function applyAiSummaries(config: AppConfig, items: NewsletterItem[
 
   const updated: NewsletterItem[] = [];
   for (const item of items) {
-    const summary = await summarizeWithOllama(config, item);
+    const maxAttempts = config.ollamaMaxRetries + 1;
+    let lastError: unknown;
+    let summary = "";
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        summary = await summarizeWithOllama(config, item);
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts || !isTransientOllamaFailure(error)) {
+          break;
+        }
+
+        const delayMs = config.ollamaRetryBackoffMs * attempt;
+        process.stderr.write(
+          `Retrying AI summary for '${item.subject}' (attempt ${attempt + 1}/${maxAttempts}) after ${delayMs}ms due to transient error.\n`
+        );
+        await wait(delayMs);
+      }
+    }
+
+    if (!summary) {
+      const message = lastError instanceof Error ? lastError.message : String(lastError);
+      throw new Error(
+        `Failed to summarize '${item.subject}' from '${item.source}' after ${maxAttempts} attempt(s): ${message}`
+      );
+    }
 
     updated.push({
       ...item,

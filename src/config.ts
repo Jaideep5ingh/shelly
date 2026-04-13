@@ -24,6 +24,8 @@ export interface AppConfig {
   ollamaBaseUrl: string;
   ollamaModel: string;
   ollamaTimeoutMs: number;
+  ollamaMaxRetries: number;
+  ollamaRetryBackoffMs: number;
 }
 
 function required(name: string): string {
@@ -73,6 +75,24 @@ function parseExtraQuery(raw: string | undefined): Record<string, string | numbe
   return output;
 }
 
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  const rounded = Math.floor(parsed);
+  return rounded > 0 ? rounded : fallback;
+}
+
+function parseNonNegativeInt(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  const rounded = Math.floor(parsed);
+  return rounded >= 0 ? rounded : fallback;
+}
+
 export function loadConfig(): AppConfig {
   const aiProviderRaw = (process.env.AI_PROVIDER ?? "ollama").trim().toLowerCase();
   if (aiProviderRaw !== "ollama") {
@@ -106,6 +126,8 @@ export function loadConfig(): AppConfig {
     aiMaxCharsPerItem: Number(process.env.AI_MAX_CHARS_PER_ITEM ?? "6000"),
     ollamaBaseUrl: (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434").replace(/\/$/, ""),
     ollamaModel: process.env.OLLAMA_MODEL ?? "gemma4:31b-cloud",
-    ollamaTimeoutMs: Number(process.env.OLLAMA_TIMEOUT_MS ?? "30000")
+    ollamaTimeoutMs: parsePositiveInt(process.env.OLLAMA_TIMEOUT_MS, 90000),
+    ollamaMaxRetries: parseNonNegativeInt(process.env.OLLAMA_MAX_RETRIES, 2),
+    ollamaRetryBackoffMs: parsePositiveInt(process.env.OLLAMA_RETRY_BACKOFF_MS, 1500)
   };
 }
