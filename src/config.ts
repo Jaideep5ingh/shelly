@@ -4,21 +4,29 @@ dotenv.config();
 dotenv.config({ path: ".env.local" });
 
 export interface AppConfig {
-  agentmailApiKey: string;
+  agentmailAdminApiKey: string;
+  agentmailSendingApiKey: string;
   agentmailApiBaseUrl: string;
   agentmailMessagesPath: string;
   agentmailAuthHeader: string;
   agentmailAuthPrefix: string;
-  agentmailInboxId: string;
+  agentmailAdminInboxId: string;
+  agentmailSendingInboxId: string;
   agentmailInboxParam: string;
   agentmailDateFromParam: string;
   agentmailDateToParam: string;
   agentmailDateFormat: string;
   agentmailExtraQuery: Record<string, string | number | boolean>;
   digestRecipientEmail: string;
+  digestRecipientEmails: string[];
+  digestSubscribersFile: string;
+  digestAlertRecipientEmail: string;
+  digestAlertsEnabled: boolean;
   digestTimezone: string;
   digestMaxItems: number;
   digestDryRun: boolean;
+  digestOutputDir: string;
+  digestOutputRetentionDays: number;
   aiProvider: "ollama";
   aiMaxCharsPerItem: number;
   ollamaBaseUrl: string;
@@ -93,6 +101,17 @@ function parseNonNegativeInt(value: string | undefined, fallback: number): numbe
   return rounded >= 0 ? rounded : fallback;
 }
 
+function parseRecipients(singleRecipient: string, recipientsCsv: string | undefined): string[] {
+  const parsed = (recipientsCsv ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  const combined = parsed.length > 0 ? parsed : [singleRecipient];
+  const deduped = Array.from(new Set(combined));
+  return deduped;
+}
+
 export function loadConfig(): AppConfig {
   const aiProviderRaw = (process.env.AI_PROVIDER ?? "ollama").trim().toLowerCase();
   if (aiProviderRaw !== "ollama") {
@@ -100,14 +119,29 @@ export function loadConfig(): AppConfig {
   }
 
   const extraQuery = parseExtraQuery(process.env.AGENTMAIL_EXTRA_QUERY_JSON);
+  const digestRecipientEmail = required("DIGEST_RECIPIENT_EMAIL");
+  const digestAlertRecipientEmail = (process.env.DIGEST_ALERT_RECIPIENT_EMAIL ?? digestRecipientEmail).trim();
+  const agentmailAdminInboxId = required("AGENTMAIL_ADMIN_INBOX_ID");
+  const agentmailAdminApiKey = required("AGENTMAIL_ADMIN_API_KEY");
+  const agentmailSendingApiKey = (process.env.AGENTMAIL_SENDING_API_KEY ?? "").trim();
+  const agentmailSendingInboxId = (process.env.AGENTMAIL_SENDING_INBOX_ID ?? "").trim();
+
+  if (!agentmailSendingApiKey) {
+    throw new Error("Missing required environment variable: AGENTMAIL_SENDING_API_KEY");
+  }
+  if (!agentmailSendingInboxId) {
+    throw new Error("Missing required environment variable: AGENTMAIL_SENDING_INBOX_ID");
+  }
 
   return {
-    agentmailApiKey: required("AGENTMAIL_API_KEY"),
+    agentmailAdminApiKey,
+    agentmailSendingApiKey,
     agentmailApiBaseUrl: (process.env.AGENTMAIL_API_BASE_URL ?? "https://api.agentmail.to/v0").replace(/\/$/, ""),
     agentmailMessagesPath: process.env.AGENTMAIL_MESSAGES_PATH ?? "/inboxes/{inbox_id}/messages",
     agentmailAuthHeader: process.env.AGENTMAIL_AUTH_HEADER ?? "Authorization",
     agentmailAuthPrefix: process.env.AGENTMAIL_AUTH_PREFIX ?? "Bearer",
-    agentmailInboxId: required("AGENTMAIL_INBOX_ID"),
+    agentmailAdminInboxId,
+    agentmailSendingInboxId,
     agentmailInboxParam: process.env.AGENTMAIL_INBOX_PARAM ?? "inbox",
     agentmailDateFromParam: process.env.AGENTMAIL_DATE_FROM_PARAM ?? "start_date",
     agentmailDateToParam: process.env.AGENTMAIL_DATE_TO_PARAM ?? "end_date",
@@ -118,10 +152,16 @@ export function loadConfig(): AppConfig {
         : {
             labels: "received"
           },
-    digestRecipientEmail: required("DIGEST_RECIPIENT_EMAIL"),
+    digestRecipientEmail,
+    digestRecipientEmails: parseRecipients(digestRecipientEmail, process.env.DIGEST_RECIPIENT_EMAILS),
+    digestSubscribersFile: process.env.DIGEST_SUBSCRIBERS_FILE ?? "data/subscribers.json",
+    digestAlertRecipientEmail: digestAlertRecipientEmail.length > 0 ? digestAlertRecipientEmail : digestRecipientEmail,
+    digestAlertsEnabled: parseBool(process.env.DIGEST_ALERTS_ENABLED, true),
     digestTimezone: process.env.DIGEST_TIMEZONE ?? "UTC",
     digestMaxItems: Number(process.env.DIGEST_MAX_ITEMS ?? "100"),
     digestDryRun: parseBool(process.env.DIGEST_DRY_RUN, false),
+    digestOutputDir: process.env.DIGEST_OUTPUT_DIR ?? "output/digests",
+    digestOutputRetentionDays: parseNonNegativeInt(process.env.DIGEST_OUTPUT_RETENTION_DAYS, 14),
     aiProvider: "ollama",
     aiMaxCharsPerItem: Number(process.env.AI_MAX_CHARS_PER_ITEM ?? "6000"),
     ollamaBaseUrl: (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434").replace(/\/$/, ""),

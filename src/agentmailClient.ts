@@ -237,7 +237,7 @@ export class AgentmailClient {
     const hasInboxPlaceholder = this.config.agentmailMessagesPath.includes("{inbox_id}");
     const resolvedPath = this.config.agentmailMessagesPath.replace(
       /\{inbox_id\}/g,
-      encodeURIComponent(this.config.agentmailInboxId)
+      encodeURIComponent(this.config.agentmailAdminInboxId)
     );
     return {
       url: `${this.config.agentmailApiBaseUrl}${resolvedPath}`,
@@ -250,8 +250,8 @@ export class AgentmailClient {
       return null;
     }
 
-    const detailsUrl = `${this.config.agentmailApiBaseUrl}/inboxes/${encodeURIComponent(this.config.agentmailInboxId)}/messages/${encodeURIComponent(messageId)}`;
-    const authValue = `${this.config.agentmailAuthPrefix} ${this.config.agentmailApiKey}`.trim();
+    const detailsUrl = `${this.config.agentmailApiBaseUrl}/inboxes/${encodeURIComponent(this.config.agentmailAdminInboxId)}/messages/${encodeURIComponent(messageId)}`;
+    const authValue = `${this.config.agentmailAuthPrefix} ${this.config.agentmailAdminApiKey}`.trim();
 
     const response = await fetch(detailsUrl, {
       method: "GET",
@@ -272,7 +272,7 @@ export class AgentmailClient {
     const { url, hasInboxPlaceholder } = this.buildMessagesCollectionUrl();
     const query = new URLSearchParams();
     if (!hasInboxPlaceholder && this.config.agentmailInboxParam.trim() !== "") {
-      query.set(this.config.agentmailInboxParam, this.config.agentmailInboxId);
+      query.set(this.config.agentmailInboxParam, this.config.agentmailAdminInboxId);
     }
     if (this.config.agentmailDateFromParam.trim() !== "") {
       query.set(this.config.agentmailDateFromParam, apiDateParamValue(this.config.agentmailDateFromParam, date, this.config.digestTimezone));
@@ -285,7 +285,7 @@ export class AgentmailClient {
       query.set(key, String(value));
     }
 
-    const authValue = `${this.config.agentmailAuthPrefix} ${this.config.agentmailApiKey}`.trim();
+    const authValue = `${this.config.agentmailAuthPrefix} ${this.config.agentmailAdminApiKey}`.trim();
     const requestUrl = query.size > 0 ? `${url}?${query.toString()}` : url;
     const response = await fetch(requestUrl, {
       method: "GET",

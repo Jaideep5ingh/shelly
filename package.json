@@ -1,6 +1,6 @@
 {
   "name": "morning-feed",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Personal newsletter aggregator powered by AgentMail",
   "type": "module",
   "main": "dist/index.js",
@@ -9,6 +9,8 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "digest": "tsx src/index.ts",
+    "digest:send": "tsx src/index.ts --send",
+    "digest:cleanup": "tsx src/index.ts --cleanup-only",
     "digest:mastra": "tsx src/mastra/runDigestWorkflow.ts",
     "digest:mastra:dry": "tsx src/mastra/runDigestWorkflow.ts --dry-run",
     "check": "tsc --noEmit -p tsconfig.json",

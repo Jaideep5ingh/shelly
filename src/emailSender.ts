@@ -5,11 +5,16 @@ interface SendDigestInput {
   subject: string;
   htmlBody: string;
   textBody: string;
+  channel?: "sending" | "admin";
 }
 
 export async function sendDigestEmail(config: AppConfig, input: SendDigestInput): Promise<void> {
-  const url = `${config.agentmailApiBaseUrl}/inboxes/${encodeURIComponent(config.agentmailInboxId)}/messages/send`;
-  const authValue = `${config.agentmailAuthPrefix} ${config.agentmailApiKey}`.trim();
+  const channel = input.channel ?? "sending";
+  const inboxId = channel === "admin" ? config.agentmailAdminInboxId : config.agentmailSendingInboxId;
+  const apiKey = channel === "admin" ? config.agentmailAdminApiKey : config.agentmailSendingApiKey;
+
+  const url = `${config.agentmailApiBaseUrl}/inboxes/${encodeURIComponent(inboxId)}/messages/send`;
+  const authValue = `${config.agentmailAuthPrefix} ${apiKey}`.trim();
 
   const response = await fetch(url, {
     method: "POST",

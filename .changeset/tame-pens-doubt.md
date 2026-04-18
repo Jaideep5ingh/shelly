@@ -1,5 +1,0 @@
----
-"shelly": major
----
-
-Created Shelly.

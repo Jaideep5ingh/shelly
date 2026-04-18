@@ -42,7 +42,8 @@ Shelly uses an AgentMail inbox as the intake layer.
 
 - Node.js 20+
 - npm
-- AgentMail API key and inbox identifier
+- AgentMail admin API key + admin inbox (for intake and job alerts)
+- AgentMail sending API key + sending inbox (for subscriber digest delivery)
 - Local Ollama instance with a downloaded model 
 - Recommended model : gemma4:31b-cloud (to not overwhelm your machine)
 
@@ -64,7 +65,10 @@ cp .env.example .env
 
 - `AGENTMAIL_API_BASE_URL`
 - `AGENTMAIL_MESSAGES_PATH`
-- `AGENTMAIL_INBOX_ID`
+- `AGENTMAIL_ADMIN_API_KEY`
+- `AGENTMAIL_ADMIN_INBOX_ID`
+- `AGENTMAIL_SENDING_API_KEY`
+- `AGENTMAIL_SENDING_INBOX_ID`
 - `AGENTMAIL_*_PARAM` names if your endpoint uses different query names
 
 4. Set recipient value:
@@ -73,16 +77,34 @@ cp .env.example .env
 
 ## Usage
 
-Run digest for today in configured timezone:
+Build digest for today in configured timezone (stores files under output directory, no sending):
 
 ```bash
 npm run digest
 ```
 
-Run digest for a specific date:
+Send today's digest email(s) from previously stored artifacts (no generation):
+
+```bash
+npm run digest:send
+```
+
+Run cleanup independently (deletes artifact files older than retention window):
+
+```bash
+npm run digest:cleanup
+```
+
+Run digest build for a specific date:
 
 ```bash
 npm run digest -- --date 2026-04-09
+```
+
+Send stored digest for a specific date:
+
+```bash
+npm run digest:send -- --date 2026-04-09
 ```
 
 Dry run (no email sent):
@@ -91,6 +113,30 @@ Dry run (no email sent):
 # Set DIGEST_DRY_RUN=true in .env
 npm run digest -- --date 2026-04-09
 ```
+
+Digest output storage and cleanup:
+
+- `DIGEST_OUTPUT_DIR` controls where daily artifacts are written.
+- `DIGEST_OUTPUT_RETENTION_DAYS` controls deletion of old artifact files when `npm run digest:cleanup` is run.
+- `DIGEST_SUBSCRIBERS_FILE` points to a JSON subscriber list used by `digest:send`.
+- `DIGEST_RECIPIENT_EMAILS` is a fallback comma-separated list if the subscriber file is missing.
+
+Subscriber file format example (`data/subscribers.json`):
+
+```json
+[
+	"you@example.com",
+	"friend@example.com"
+]
+```
+
+Job status alerts:
+
+- `DIGEST_ALERT_RECIPIENT_EMAIL` sets where status notifications are sent (defaults to `DIGEST_RECIPIENT_EMAIL`).
+- `DIGEST_ALERTS_ENABLED=true|false` enables or disables status notification emails.
+- Alerts are sent using the AgentMail admin key/inbox channel.
+- On any job failure (`digest`, `digest:send`, or `digest:cleanup`), Shelly sends a failure alert with the failed job and error reason.
+- On successful end-to-end completion for a date (build completed first, then send completed), Shelly sends a success alert.
 
 ## Local AI with Ollama
 
