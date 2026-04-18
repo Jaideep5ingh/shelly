@@ -5,3 +5,5 @@ dist/
 .DS_Store
 coverage/
 output/
+
+data/subscribers.json
