@@ -236,6 +236,14 @@ function dedupeRecipients(values: string[]): string[] {
   return Array.from(new Set(normalized));
 }
 
+function chunkRecipients(values: string[], size: number): string[][] {
+  const output: string[][] = [];
+  for (let i = 0; i < values.length; i += size) {
+    output.push(values.slice(i, i + size));
+  }
+  return output;
+}
+
 function parseRecipientsFromFile(raw: string): string[] {
   const parsed = JSON.parse(raw) as unknown;
   if (Array.isArray(parsed)) {
@@ -283,6 +291,46 @@ async function loadRecipients(config: AppConfig): Promise<{ recipients: string[]
   };
 }
 
+async function sendRecipientsInParallelBatches(
+  config: AppConfig,
+  dateLabel: string,
+  digest: StoredDigestContent,
+  recipients: string[]
+): Promise<void> {
+  const batches = chunkRecipients(recipients, config.digestSendBatchSize);
+  const workerCount = Math.min(config.digestSendParallelBatches, batches.length);
+  let nextBatchIndex = 0;
+
+  async function runWorker(workerId: number): Promise<void> {
+    while (true) {
+      const batchIndex = nextBatchIndex;
+      nextBatchIndex += 1;
+      if (batchIndex >= batches.length) {
+        return;
+      }
+
+      const batch = batches[batchIndex];
+      process.stdout.write(
+        `Batch ${batchIndex + 1}/${batches.length} started by worker ${workerId} (${batch.length} recipient(s)).\n`
+      );
+
+      for (const recipient of batch) {
+        await sendDigestEmail(config, {
+          to: recipient,
+          subject: `Shelly Digest - ${dateLabel}`,
+          htmlBody: digest.htmlBody,
+          textBody: digest.textBody
+        });
+      }
+
+      process.stdout.write(`Batch ${batchIndex + 1}/${batches.length} finished by worker ${workerId}.\n`);
+    }
+  }
+
+  const workers = Array.from({ length: workerCount }, (_, index) => runWorker(index + 1));
+  await Promise.all(workers);
+}
+
 async function notifyFailure(config: AppConfig | undefined, jobName: DigestJobName, dateLabel: string | undefined, error: unknown): Promise<void> {
   if (!config) {
     return;
@@ -324,14 +372,7 @@ async function main(): Promise<void> {
     if (args.send) {
       const storedDigest = await loadStoredDigestArtifacts(outputDir, dateLabel);
       const recipientResult = await loadRecipients(config);
-      for (const recipient of recipientResult.recipients) {
-        await sendDigestEmail(config, {
-          to: recipient,
-          subject: `Shelly Digest - ${dateLabel}`,
-          htmlBody: storedDigest.htmlBody,
-          textBody: storedDigest.textBody
-        });
-      }
+      await sendRecipientsInParallelBatches(config, dateLabel, storedDigest, recipientResult.recipients);
 
       const state = await markSendComplete(outputDir, dateLabel);
       if (state.generatedAt && state.sentAt) {
@@ -353,6 +394,9 @@ async function main(): Promise<void> {
       if (recipientResult.recipients.length > 0) {
         process.stdout.write(`Recipients: ${recipientResult.recipients.join(", ")}\n`);
       }
+      process.stdout.write(
+        `Send fanout config: batch_size=${config.digestSendBatchSize}, parallel_batches=${config.digestSendParallelBatches}\n`
+      );
       process.stdout.write(`Recipient source: ${recipientResult.source}\n`);
       process.stdout.write(
         `Artifacts used: ${digestArtifactPath(outputDir, dateLabel, "html")}, ${digestArtifactPath(outputDir, dateLabel, "txt")}, ${digestArtifactPath(outputDir, dateLabel, "json")}\n`

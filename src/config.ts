@@ -20,6 +20,8 @@ export interface AppConfig {
   digestRecipientEmail: string;
   digestRecipientEmails: string[];
   digestSubscribersFile: string;
+  digestSendBatchSize: number;
+  digestSendParallelBatches: number;
   digestAlertRecipientEmail: string;
   digestAlertsEnabled: boolean;
   digestTimezone: string;
@@ -155,6 +157,8 @@ export function loadConfig(): AppConfig {
     digestRecipientEmail,
     digestRecipientEmails: parseRecipients(digestRecipientEmail, process.env.DIGEST_RECIPIENT_EMAILS),
     digestSubscribersFile: process.env.DIGEST_SUBSCRIBERS_FILE ?? "data/subscribers.json",
+    digestSendBatchSize: parsePositiveInt(process.env.DIGEST_SEND_BATCH_SIZE, 10),
+    digestSendParallelBatches: parsePositiveInt(process.env.DIGEST_SEND_PARALLEL_BATCHES, 5),
     digestAlertRecipientEmail: digestAlertRecipientEmail.length > 0 ? digestAlertRecipientEmail : digestRecipientEmail,
     digestAlertsEnabled: parseBool(process.env.DIGEST_ALERTS_ENABLED, true),
     digestTimezone: process.env.DIGEST_TIMEZONE ?? "UTC",

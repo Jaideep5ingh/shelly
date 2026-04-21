@@ -107,6 +107,12 @@ Send stored digest for a specific date:
 npm run digest:send -- --date 2026-04-09
 ```
 
+Run the landing page + subscribe API:
+
+```bash
+npm run landing
+```
+
 Dry run (no email sent):
 
 ```bash
@@ -120,6 +126,10 @@ Digest output storage and cleanup:
 - `DIGEST_OUTPUT_RETENTION_DAYS` controls deletion of old artifact files when `npm run digest:cleanup` is run.
 - `DIGEST_SUBSCRIBERS_FILE` points to a JSON subscriber list used by `digest:send`.
 - `DIGEST_RECIPIENT_EMAILS` is a fallback comma-separated list if the subscriber file is missing.
+- `DIGEST_SEND_BATCH_SIZE` controls recipients per send batch (default: `10`).
+- `DIGEST_SEND_PARALLEL_BATCHES` controls how many batches are processed concurrently (default: `5`).
+
+For a 50-recipient launch, recommended defaults are `DIGEST_SEND_BATCH_SIZE=10` and `DIGEST_SEND_PARALLEL_BATCHES=5`.
 
 Subscriber file format example (`data/subscribers.json`):
 
@@ -137,6 +147,20 @@ Job status alerts:
 - Alerts are sent using the AgentMail admin key/inbox channel.
 - On any job failure (`digest`, `digest:send`, or `digest:cleanup`), Shelly sends a failure alert with the failed job and error reason.
 - On successful end-to-end completion for a date (build completed first, then send completed), Shelly sends a success alert.
+
+Landing page subscription security:
+
+- API endpoint: `POST /api/subscribe` on the landing server.
+- Strict server-side email validation and normalization.
+- Input security checks for prompt-injection and script-like payload patterns.
+- Honeypot field check to reduce bot submissions.
+- IP-based rate limiting and request body size limits.
+- Origin check and hardened response headers (CSP, frame deny, etc.).
+- Subscriber cap enforcement via `SUBSCRIBER_CAP` (default `50`).
+- Subscriber metadata stores a count hash (`SUBSCRIBER_COUNT_SALT`) to detect count tampering.
+- Per-route and global IP throttles reduce subscribe/feedback flood abuse.
+- Per-email throttles block repeated scripted submits for the same address.
+- For Vercel production, use `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` for durable cross-instance rate limiting.
 
 ## Local AI with Ollama
 
