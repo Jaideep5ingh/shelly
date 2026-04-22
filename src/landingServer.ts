@@ -31,6 +31,10 @@ const SUBSCRIBER_COUNT_SALT = process.env.SUBSCRIBER_COUNT_SALT ?? "shelly-subsc
 const SUBSCRIBERS_FILE = path.resolve(process.cwd(), process.env.DIGEST_SUBSCRIBERS_FILE ?? "data/subscribers.json");
 const FEEDBACK_FILE = path.resolve(process.cwd(), "data/feedback.jsonl");
 const ASSETS_DIR = path.resolve(process.cwd(), "src/assets");
+const VPS_SUBSCRIBE_URL = process.env.VPS_SUBSCRIBE_URL?.trim() ?? "";
+const VPS_FEEDBACK_URL = process.env.VPS_FEEDBACK_URL?.trim() ?? "";
+const INTAKE_AUTH_HEADER = (process.env.INTAKE_AUTH_HEADER ?? "x-forward-secret").toLowerCase();
+const INTAKE_FORWARD_SECRET = process.env.INTAKE_FORWARD_SECRET?.trim() ?? "";
 const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL?.trim() ?? "";
 const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ?? "";
 const USE_UPSTASH_RATE_LIMIT = UPSTASH_REDIS_REST_URL !== "" && UPSTASH_REDIS_REST_TOKEN !== "";
@@ -851,6 +855,53 @@ function getClientIp(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? "unknown";
 }
 
+function shouldForwardToVps(channel: "subscribe" | "feedback"): boolean {
+  const target = channel === "subscribe" ? VPS_SUBSCRIBE_URL : VPS_FEEDBACK_URL;
+  return target.length > 0;
+}
+
+function getVpsForwardTarget(channel: "subscribe" | "feedback"): string {
+  return channel === "subscribe" ? VPS_SUBSCRIBE_URL : VPS_FEEDBACK_URL;
+}
+
+async function forwardToVps(
+  channel: "subscribe" | "feedback",
+  payload: Record<string, unknown>
+): Promise<{ statusCode: number; payload: Record<string, unknown> }> {
+  if (INTAKE_FORWARD_SECRET.length < 20) {
+    throw new Error("INTAKE_FORWARD_SECRET is missing or too short");
+  }
+
+  const target = getVpsForwardTarget(channel);
+  if (target.length === 0) {
+    throw new Error(`VPS forward URL is missing for ${channel}`);
+  }
+
+  const response = await fetch(target, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      [INTAKE_AUTH_HEADER]: INTAKE_FORWARD_SECRET
+    },
+    body: JSON.stringify(payload)
+  });
+
+  let parsedPayload: Record<string, unknown> = {};
+  try {
+    const raw = await response.json();
+    if (raw && typeof raw === "object") {
+      parsedPayload = raw as Record<string, unknown>;
+    }
+  } catch {
+    // Keep empty object fallback when upstream payload is not JSON.
+  }
+
+  return {
+    statusCode: response.status,
+    payload: parsedPayload
+  };
+}
+
 function hashIdentifier(value: string): string {
   return createHash("sha256").update(`${SUBSCRIBER_COUNT_SALT}:${value}`).digest("hex").slice(0, 24);
 }
@@ -1107,6 +1158,16 @@ async function handleSubscribe(req: IncomingMessage, res: ServerResponse): Promi
     return;
   }
 
+  if (shouldForwardToVps("subscribe")) {
+    try {
+      const forwarded = await forwardToVps("subscribe", { email, website });
+      sendJson(res, forwarded.statusCode, forwarded.payload);
+    } catch {
+      sendJson(res, 502, { message: "Upstream intake unavailable" });
+    }
+    return;
+  }
+
   let recipients: string[];
   try {
     recipients = await readSubscribers();
@@ -1215,6 +1276,16 @@ async function handleFeedback(req: IncomingMessage, res: ServerResponse): Promis
     return;
   }
 
+  if (shouldForwardToVps("feedback")) {
+    try {
+      const forwarded = await forwardToVps("feedback", { email, feedback, website });
+      sendJson(res, forwarded.statusCode, forwarded.payload);
+    } catch {
+      sendJson(res, 502, { message: "Upstream intake unavailable" });
+    }
+    return;
+  }
+
   const record = {
     email,
     feedback,
@@ -1317,4 +1388,7 @@ server.listen(PORT, () => {
   process.stdout.write(`Landing page listening on http://localhost:${PORT}\n`);
   process.stdout.write(`Subscriber file: ${SUBSCRIBERS_FILE}\n`);
   process.stdout.write(`Subscriber cap: ${SUBSCRIBER_CAP}\n`);
+  if (VPS_SUBSCRIBE_URL && VPS_FEEDBACK_URL) {
+    process.stdout.write(`Forward mode enabled: subscribe -> ${VPS_SUBSCRIBE_URL}, feedback -> ${VPS_FEEDBACK_URL}\n`);
+  }
 });

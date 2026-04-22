@@ -10,6 +10,8 @@
     "dev": "tsx src/index.ts",
     "landing": "tsx src/landingServer.ts",
     "landing:prod": "node dist/landingServer.js",
+    "intake": "tsx src/vpsIntakeServer.ts",
+    "intake:prod": "node dist/vpsIntakeServer.js",
     "digest": "tsx src/index.ts",
     "digest:send": "tsx src/index.ts --send",
     "digest:cleanup": "tsx src/index.ts --cleanup-only",

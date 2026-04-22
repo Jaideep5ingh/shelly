@@ -113,6 +113,12 @@ Run the landing page + subscribe API:
 npm run landing
 ```
 
+Run the VPS intake server (protected subscribe/feedback ingestion endpoints):
+
+```bash
+npm run intake
+```
+
 Dry run (no email sent):
 
 ```bash
@@ -161,6 +167,16 @@ Landing page subscription security:
 - Per-route and global IP throttles reduce subscribe/feedback flood abuse.
 - Per-email throttles block repeated scripted submits for the same address.
 - For Vercel production, use `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` for durable cross-instance rate limiting.
+
+VPS intake endpoint security:
+
+- Endpoints: `POST /intake/subscribe`, `POST /intake/feedback`, `GET /health`.
+- All intake POST requests require shared-secret auth via `INTAKE_AUTH_HEADER` + `INTAKE_FORWARD_SECRET`.
+- Strict JSON/body-size/content-type checks and injection-pattern filtering.
+- Honeypot field support (`website`) for bot filtering.
+- Subscriber writes are atomic and deduped in `DIGEST_SUBSCRIBERS_FILE`.
+- Feedback is appended to `data/feedback.jsonl` as JSONL records.
+- Intended flow: browser -> Vercel public endpoint -> VPS intake endpoint (server-to-server).
 
 ## Local AI with Ollama
 
