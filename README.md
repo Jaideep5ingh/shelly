@@ -107,12 +107,6 @@ Send stored digest for a specific date:
 npm run digest:send -- --date 2026-04-09
 ```
 
-Run the landing page + subscribe API:
-
-```bash
-npm run landing
-```
-
 Run the VPS intake server (protected subscribe/feedback ingestion endpoints):
 
 ```bash
@@ -154,19 +148,10 @@ Job status alerts:
 - On any job failure (`digest`, `digest:send`, or `digest:cleanup`), Shelly sends a failure alert with the failed job and error reason.
 - On successful end-to-end completion for a date (build completed first, then send completed), Shelly sends a success alert.
 
-Landing page subscription security:
+Frontend deployment:
 
-- API endpoint: `POST /api/subscribe` on the landing server.
-- Strict server-side email validation and normalization.
-- Input security checks for prompt-injection and script-like payload patterns.
-- Honeypot field check to reduce bot submissions.
-- IP-based rate limiting and request body size limits.
-- Origin check and hardened response headers (CSP, frame deny, etc.).
-- Subscriber cap enforcement via `SUBSCRIBER_CAP` (default `50`).
-- Subscriber metadata stores a count hash (`SUBSCRIBER_COUNT_SALT`) to detect count tampering.
-- Per-route and global IP throttles reduce subscribe/feedback flood abuse.
-- Per-email throttles block repeated scripted submits for the same address.
-- For Vercel production, use `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` for durable cross-instance rate limiting.
+- Public landing page + browser-facing APIs live in the separate `shelly-frontend` project.
+- This backend repo only runs digest jobs and the protected VPS intake endpoints.
 
 VPS intake endpoint security:
 

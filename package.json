@@ -8,8 +8,6 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "landing": "tsx src/landingServer.ts",
-    "landing:prod": "node dist/landingServer.js",
     "intake": "tsx src/vpsIntakeServer.ts",
     "intake:prod": "node dist/vpsIntakeServer.js",
     "digest": "tsx src/index.ts",
