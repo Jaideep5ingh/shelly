@@ -29,6 +29,8 @@ export interface AppConfig {
   digestDryRun: boolean;
   digestOutputDir: string;
   digestOutputRetentionDays: number;
+  publicAppBaseUrl: string;
+  unsubscribeSigningSecret: string;
   aiProvider: "ollama";
   aiMaxCharsPerItem: number;
   ollamaBaseUrl: string;
@@ -166,6 +168,8 @@ export function loadConfig(): AppConfig {
     digestDryRun: parseBool(process.env.DIGEST_DRY_RUN, false),
     digestOutputDir: process.env.DIGEST_OUTPUT_DIR ?? "output/digests",
     digestOutputRetentionDays: parseNonNegativeInt(process.env.DIGEST_OUTPUT_RETENTION_DAYS, 14),
+    publicAppBaseUrl: required("PUBLIC_APP_BASE_URL").replace(/\/$/, ""),
+    unsubscribeSigningSecret: required("UNSUBSCRIBE_TOKEN_SECRET"),
     aiProvider: "ollama",
     aiMaxCharsPerItem: Number(process.env.AI_MAX_CHARS_PER_ITEM ?? "6000"),
     ollamaBaseUrl: (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434").replace(/\/$/, ""),

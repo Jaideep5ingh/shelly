@@ -151,17 +151,20 @@ Job status alerts:
 Frontend deployment:
 
 - Public landing page + browser-facing APIs live in the separate `shelly-frontend` project.
+- Digest emails now include a signed unsubscribe link that points to the Vercel frontend.
 - This backend repo only runs digest jobs and the protected VPS intake endpoints.
 
 VPS intake endpoint security:
 
-- Endpoints: `POST /intake/subscribe`, `POST /intake/feedback`, `GET /health`.
-- All intake POST requests require shared-secret auth via `INTAKE_AUTH_HEADER` + `INTAKE_FORWARD_SECRET`.
+- Endpoints: `POST /intake/subscribe`, `POST /intake/feedback`, `POST /intake/unsubscribe`, `GET /health`.
+- `POST /intake/subscribe` and `POST /intake/feedback` require shared-secret auth via `INTAKE_AUTH_HEADER` + `INTAKE_FORWARD_SECRET`.
+- `POST /intake/unsubscribe` uses an encrypted token embedded in the email link and removes the recipient from `DIGEST_SUBSCRIBERS_FILE`.
+- Configure `UNSUBSCRIBE_TOKEN_SECRET` as a separate value from `INTAKE_FORWARD_SECRET`.
 - Strict JSON/body-size/content-type checks and injection-pattern filtering.
 - Honeypot field support (`website`) for bot filtering.
 - Subscriber writes are atomic and deduped in `DIGEST_SUBSCRIBERS_FILE`.
 - Feedback is appended to `data/feedback.jsonl` as JSONL records.
-- Intended flow: browser -> Vercel public endpoint -> VPS intake endpoint (server-to-server).
+- Intended flow: email -> Vercel unsubscribe page -> VPS intake endpoint (server-to-server).
 
 ## Local AI with Ollama
 

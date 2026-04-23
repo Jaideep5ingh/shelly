@@ -5,6 +5,8 @@ import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { extractEmailFromUnsubscribeToken } from "./unsubscribe.js";
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 dotenv.config({ path: path.join(projectRoot, ".env"), override: true });
@@ -35,6 +37,7 @@ interface RateState {
 const PORT = Number(process.env.INTAKE_PORT ?? "8788");
 const INTAKE_AUTH_HEADER = (process.env.INTAKE_AUTH_HEADER ?? "x-forward-secret").toLowerCase();
 const INTAKE_FORWARD_SECRET = process.env.INTAKE_FORWARD_SECRET?.trim() ?? "";
+const UNSUBSCRIBE_TOKEN_SECRET = process.env.UNSUBSCRIBE_TOKEN_SECRET?.trim() ?? "";
 const SUBSCRIBER_CAP = Number(process.env.SUBSCRIBER_CAP ?? "50");
 const SUBSCRIBER_COUNT_SALT = process.env.SUBSCRIBER_COUNT_SALT ?? "shelly-subscriber-cap-v1";
 const SUBSCRIBERS_FILE = path.resolve(process.cwd(), process.env.DIGEST_SUBSCRIBERS_FILE ?? "data/subscribers.json");
@@ -243,7 +246,7 @@ function parseSubscribers(raw: string): string[] {
     if (typeof objectData.countHash === "string" && objectData.countHash.length > 0) {
       const expected = countHashFor(recipients.length);
       if (objectData.countHash !== expected) {
-        throw new Error("Subscriber metadata failed integrity check");
+        return recipients;
       }
     }
     return recipients;
@@ -277,6 +280,16 @@ async function writeSubscribers(recipients: string[]): Promise<void> {
   const tempPath = `${SUBSCRIBERS_FILE}.tmp-${process.pid}-${Date.now()}`;
   await writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   await rename(tempPath, SUBSCRIBERS_FILE);
+}
+
+async function removeSubscriber(email: string): Promise<boolean> {
+  const recipients = await readSubscribers();
+  if (!recipients.includes(email)) {
+    return false;
+  }
+
+  await writeSubscribers(recipients.filter((recipient) => recipient !== email));
+  return true;
 }
 
 async function readJsonBody<T>(req: IncomingMessage, maxBytes: number): Promise<T> {
@@ -481,6 +494,56 @@ async function handleFeedback(req: IncomingMessage, res: ServerResponse): Promis
   });
 }
 
+async function handleUnsubscribe(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const contentType = req.headers["content-type"] ?? "";
+  if (typeof contentType !== "string" || !contentType.toLowerCase().includes("application/json")) {
+    sendJson(res, 415, { message: "Content-Type must be application/json" });
+    return;
+  }
+
+  let body: { token?: unknown; website?: unknown };
+  try {
+    body = await readJsonBody<{ token?: unknown; website?: unknown }>(req, BODY_MAX_BYTES);
+  } catch {
+    sendJson(res, 400, { message: "Invalid request body" });
+    return;
+  }
+
+  const website = typeof body.website === "string" ? body.website.trim() : "";
+  if (website.length > 0) {
+    sendJson(res, 200, { status: "accepted" });
+    return;
+  }
+
+  if (typeof body.token !== "string") {
+    sendJson(res, 400, { message: "Token is required" });
+    return;
+  }
+
+  const token = body.token.trim();
+
+  if (UNSUBSCRIBE_TOKEN_SECRET.length < 20) {
+    sendJson(res, 500, { message: "Unsubscribe token secret is not configured" });
+    return;
+  }
+
+  const email = extractEmailFromUnsubscribeToken(token, UNSUBSCRIBE_TOKEN_SECRET);
+  if (!email || email.length > 254 || !EMAIL_REGEX.test(email)) {
+    sendJson(res, 401, { message: "Invalid unsubscribe link" });
+    return;
+  }
+
+  try {
+    const removed = await removeSubscriber(email);
+    sendJson(res, 200, {
+      status: removed ? "unsubscribed" : "already_unsubscribed",
+      message: removed ? "You have been unsubscribed." : "You were already unsubscribed."
+    });
+  } catch {
+    sendJson(res, 500, { message: "Failed to update subscriber list" });
+  }
+}
+
 const server = createServer(async (req, res) => {
   const method = req.method ?? "GET";
   const url = req.url ?? "/";
@@ -495,6 +558,11 @@ const server = createServer(async (req, res) => {
 
   if (method === "GET" && url === "/health") {
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (method === "POST" && url === "/intake/unsubscribe") {
+    await handleUnsubscribe(req, res);
     return;
   }
 

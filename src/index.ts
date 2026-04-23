@@ -9,6 +9,7 @@ import { dateForTimezone, normalizeDateInput } from "./dateUtils.js";
 import { sendDigestEmail } from "./emailSender.js";
 import type { AppConfig } from "./config.js";
 import { sendEndToEndSuccessAlert, sendFailureAlert, type DigestJobName } from "./jobNotifications.js";
+import { appendUnsubscribeFooter } from "./unsubscribe.js";
 
 interface Args {
   date?: string;
@@ -315,11 +316,12 @@ async function sendRecipientsInParallelBatches(
       );
 
       for (const recipient of batch) {
+        const footerizedDigest = appendUnsubscribeFooter(config, recipient, digest.htmlBody, digest.textBody);
         await sendDigestEmail(config, {
           to: recipient,
           subject: `Shelly Digest - ${dateLabel}`,
-          htmlBody: digest.htmlBody,
-          textBody: digest.textBody
+          htmlBody: footerizedDigest.htmlBody,
+          textBody: footerizedDigest.textBody
         });
       }
 
