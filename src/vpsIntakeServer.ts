@@ -1,7 +1,14 @@
+import dotenv from "dotenv";
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+dotenv.config({ path: path.join(projectRoot, ".env"), override: true });
+dotenv.config({ path: path.join(projectRoot, ".env.local"), override: true });
 
 interface SubscribeRequestBody {
   email?: unknown;
