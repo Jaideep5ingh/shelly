@@ -41,6 +41,40 @@ function normalizeImageUrls(imageUrls: string[]): string[] {
   return [...new Set(normalized)].slice(0, 8);
 }
 
+function isLikelyUsefulImageUrl(raw: string): boolean {
+  const value = raw.trim().toLowerCase();
+  if (!value) {
+    return false;
+  }
+
+  if (value.includes("images.tldr.tech")) {
+    return false;
+  }
+
+  let pathname = value;
+  try {
+    pathname = new URL(value).pathname.toLowerCase();
+  } catch {
+    pathname = value;
+  }
+
+  if (["logo", "wordmark", "avatar", "avatar", "icon", "badge", "lockup", "signature", "footer"].some((token) => pathname.includes(token))) {
+    return false;
+  }
+
+  if (["chart", "graph", "diagram", "screenshot", "screen", "mockup", "product", "ui", "dashboard", "report", "photo", "hero"].some((token) => pathname.includes(token))) {
+    return true;
+  }
+
+  const filename = pathname.split("/").pop() ?? "";
+  const baseName = filename.replace(/\.(png|jpe?g|gif|webp|svg|avif)(\?.*)?$/, "");
+  if (baseName.length <= 10 && !/[._-]/.test(baseName)) {
+    return false;
+  }
+
+  return true;
+}
+
 function removeUrls(input: string): string {
   return input.replace(/https?:\/\/\S+/gi, "").trim();
 }
@@ -56,12 +90,15 @@ function renderSummaryHtml(summary: string, imageUrls: string[]): string {
   }
 
   const parts: string[] = [];
-  for (const line of lines) {
+  const hasBullets = lines.some((l) => l.startsWith("- "));
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const marker = /^-?\s*\[IMAGE_(\d+)\]\s*$/i.exec(line);
     if (marker) {
       const imageIndex = Number(marker[1]) - 1;
       const imageUrl = imageUrls[imageIndex];
-      if (imageUrl) {
+      if (imageUrl && isLikelyUsefulImageUrl(imageUrl)) {
         parts.push(
           `<div style="margin:10px 0 12px 0;"><img src="${escapeHtml(imageUrl)}" alt="newsletter image ${imageIndex + 1}" style="display:block;max-width:100%;height:auto;border-radius:10px;border:1px solid #d6deea;background:#f8fafc;" onerror="this.style.display='none'"/></div>`
         );
@@ -70,9 +107,12 @@ function renderSummaryHtml(summary: string, imageUrls: string[]): string {
     }
 
     const isBullet = line.startsWith("- ");
-    const text = isBullet ? line.slice(2) : line;
+    // If the summary contains bullets but the first line is an intro (not prefixed with '- '),
+    // treat that first line as a bullet so it displays consistently.
+    const shouldBeBullet = isBullet || (i === 0 && hasBullets && !isBullet);
+    const text = shouldBeBullet ? (isBullet ? line.slice(2) : line) : line;
     parts.push(
-      `<p style="margin:0 0 8px 0;color:#1e293b;line-height:1.6;">${isBullet ? "&bull; " : ""}${escapeHtml(text)}</p>`
+      `<p style="margin:0 0 8px 0;color:#1e293b;line-height:1.6;">${shouldBeBullet ? "&bull; " : ""}${escapeHtml(text)}</p>`
     );
   }
 
@@ -82,23 +122,14 @@ function renderSummaryHtml(summary: string, imageUrls: string[]): string {
 function sectionToHtml(section: DigestSection): string {
   const cleanImages = normalizeImageUrls(section.imageUrls);
 
-  const imagesBlock = cleanImages.length
-    ? `<div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">${cleanImages
-        .slice(0, 6)
-        .map(
-          (url) =>
-            `<div><img src="${escapeHtml(url)}" alt="newsletter image" style="display:block;width:100%;height:auto;border-radius:10px;border:1px solid #d6deea;background:#f8fafc;" onerror="this.style.display='none'"/></div>`
-        )
-        .join("")}</div>`
-    : "";
-
-  const hasInlineImageMarkers = /\[IMAGE_\d+\]/i.test(section.summary);
-
   return `
-    <article style="padding:18px 18px 16px 18px;border:1px solid #d6deea;border-radius:14px;margin-bottom:14px;background:#ffffff;box-shadow:0 2px 10px rgba(15,23,42,0.04);">
-      <h3 style="margin:0 0 8px 0;color:#0f172a;font-size:28px;line-height:1.25;font-family:Georgia,serif;">${escapeHtml(section.subject)}</h3>
+    <article style="padding:20px 20px 18px 20px;border:1px solid #d9e2ef;border-radius:18px;margin-bottom:16px;background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%);box-shadow:0 10px 30px rgba(15,23,42,0.06);">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:10px;">
+        <div style="min-width:0;">
+          <h3 style="margin:0;color:#0f172a;font-size:27px;line-height:1.15;font-family:'Iowan Old Style',Georgia,serif;letter-spacing:-0.02em;">${escapeHtml(section.subject)}</h3>
+        </div>
+      </div>
       ${renderSummaryHtml(section.summary, cleanImages)}
-      ${hasInlineImageMarkers ? "" : imagesBlock}
     </article>
   `;
 }
@@ -132,15 +163,25 @@ export function buildDigest(dateLabel: string, items: NewsletterItem[], maxItems
   });
 
   const htmlBody = `
-    <main style="font-family:'Avenir Next',Avenir,'Segoe UI',sans-serif;background:#f1f5f9;padding:28px;">
-      <section style="max-width:920px;margin:0 auto;">
-        <header style="padding:12px 2px 14px 2px;">
-          <h1 style="margin:0;color:#0f172a;font-size:42px;line-height:1.05;letter-spacing:-0.5px;">Shelly Digest</h1>
-          <p style="margin:10px 0 0 0;color:#475569;font-size:14px;">Date: ${escapeHtml(dateLabel)} | Items: ${sections.length}</p>
-        </header>
-        ${sections.map(sectionToHtml).join("\n")}
-      </section>
-    </main>
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </head>
+      <body style="margin:0 !important;padding:0 !important;background:linear-gradient(180deg,#eef4fb 0%,#f7f9fc 28%,#f8fafc 100%);font-family:'Avenir Next',Avenir,'Segoe UI',sans-serif;">
+        <div style="margin:0;padding:0 14px 22px 14px;">
+          <div style="max-width:860px;margin:0 auto;">
+            <div style="padding:4px 2px 10px 2px;">
+              <p style="margin:0 0 6px 0;color:#64748b;font-size:11px;line-height:1.4;text-transform:uppercase;letter-spacing:0.16em;font-weight:700;">Daily newsletter digest</p>
+              <h1 style="margin:0;color:#0f172a;font-size:38px;line-height:1.05;letter-spacing:-0.8px;">Shelly Digest</h1>
+              <p style="margin:6px 0 0 0;color:#475569;font-size:14px;line-height:1.5;">Date: ${escapeHtml(dateLabel)} · Items: ${sections.length}</p>
+            </div>
+            ${sections.map(sectionToHtml).join("\n")}
+          </div>
+        </div>
+      </body>
+    </html>
   `;
 
   return {

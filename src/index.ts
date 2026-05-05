@@ -8,6 +8,7 @@ import { buildDigest } from "./digestBuilder.js";
 import { dateForTimezone, normalizeDateInput } from "./dateUtils.js";
 import { sendDigestEmail } from "./emailSender.js";
 import type { AppConfig } from "./config.js";
+import type { NewsletterItem } from "./types.js";
 import { sendEndToEndSuccessAlert, sendFailureAlert, type DigestJobName } from "./jobNotifications.js";
 import { appendUnsubscribeFooter } from "./unsubscribe.js";
 
@@ -63,6 +64,12 @@ interface DigestJobState {
 
 interface SubscribersFileShape {
   recipients?: unknown;
+}
+
+interface LoadedRecipients {
+  recipients: string[];
+  source: string;
+  skippedInvalid: string[];
 }
 
 function digestArtifactPath(outputDir: string, dateLabel: string, extension: "html" | "txt" | "json"): string {
@@ -237,12 +244,51 @@ function dedupeRecipients(values: string[]): string[] {
   return Array.from(new Set(normalized));
 }
 
+function isLikelyEmail(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return false;
+  }
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+}
+
+function partitionRecipients(values: string[]): { valid: string[]; invalid: string[] } {
+  const valid: string[] = [];
+  const invalid: string[] = [];
+
+  for (const value of dedupeRecipients(values)) {
+    if (isLikelyEmail(value)) {
+      valid.push(value);
+    } else {
+      invalid.push(value);
+    }
+  }
+
+  return { valid, invalid };
+}
+
 function chunkRecipients(values: string[], size: number): string[][] {
   const output: string[][] = [];
   for (let i = 0; i < values.length; i += size) {
     output.push(values.slice(i, i + size));
   }
   return output;
+}
+
+function prioritizeRundownAiFirst(items: NewsletterItem[]): NewsletterItem[] {
+  const pinned: NewsletterItem[] = [];
+  const rest: NewsletterItem[] = [];
+
+  for (const item of items) {
+    const source = item.source.trim().toLowerCase();
+    if (source.includes("the rundown ai")) {
+      pinned.push(item);
+      continue;
+    }
+    rest.push(item);
+  }
+
+  return [...pinned, ...rest];
 }
 
 function parseRecipientsFromFile(raw: string): string[] {
@@ -261,7 +307,7 @@ function parseRecipientsFromFile(raw: string): string[] {
   throw new Error("Subscriber file must be a JSON string array or an object with a 'recipients' string array.");
 }
 
-async function loadRecipients(config: AppConfig): Promise<{ recipients: string[]; source: string }> {
+async function loadRecipients(config: AppConfig): Promise<LoadedRecipients> {
   const subscribersPath = path.resolve(process.cwd(), config.digestSubscribersFile);
   try {
     const raw = await readFile(subscribersPath, "utf8");
@@ -269,9 +315,16 @@ async function loadRecipients(config: AppConfig): Promise<{ recipients: string[]
     if (recipients.length === 0) {
       throw new Error(`Subscriber file ${subscribersPath} does not contain any recipients.`);
     }
+    const partitioned = partitionRecipients(recipients);
+    if (partitioned.invalid.length > 0) {
+      process.stdout.write(
+        `Skipped ${partitioned.invalid.length} invalid recipient(s) from subscriber file: ${partitioned.invalid.join(", ")}\n`
+      );
+    }
     return {
-      recipients,
-      source: subscribersPath
+      recipients: partitioned.valid,
+      source: subscribersPath,
+      skippedInvalid: partitioned.invalid
     };
   } catch (error) {
     const isMissingFile = error instanceof Error && /ENOENT/.test(error.message);
@@ -286,9 +339,17 @@ async function loadRecipients(config: AppConfig): Promise<{ recipients: string[]
     );
   }
 
+  const partitioned = partitionRecipients(config.digestRecipientEmails);
+  if (partitioned.invalid.length > 0) {
+    process.stdout.write(
+      `Skipped ${partitioned.invalid.length} invalid recipient(s) from DIGEST_RECIPIENT_EMAILS: ${partitioned.invalid.join(", ")}\n`
+    );
+  }
+
   return {
-    recipients: config.digestRecipientEmails,
-    source: "DIGEST_RECIPIENT_EMAILS"
+    recipients: partitioned.valid,
+    source: "DIGEST_RECIPIENT_EMAILS",
+    skippedInvalid: partitioned.invalid
   };
 }
 
@@ -316,13 +377,25 @@ async function sendRecipientsInParallelBatches(
       );
 
       for (const recipient of batch) {
-        const footerizedDigest = appendUnsubscribeFooter(config, recipient, digest.htmlBody, digest.textBody);
-        await sendDigestEmail(config, {
-          to: recipient,
-          subject: `Shelly Digest - ${dateLabel}`,
-          htmlBody: footerizedDigest.htmlBody,
-          textBody: footerizedDigest.textBody
-        });
+        try {
+          if (!isLikelyEmail(recipient)) {
+            process.stderr.write(`Skipping invalid recipient address: ${recipient}\n`);
+            continue;
+          }
+
+          const footerizedDigest = appendUnsubscribeFooter(config, recipient, digest.htmlBody, digest.textBody);
+          await sendDigestEmail(config, {
+            to: recipient,
+            subject: `Shelly Digest - ${dateLabel}`,
+            htmlBody: footerizedDigest.htmlBody,
+            textBody: footerizedDigest.textBody
+          });
+        } catch (error) {
+          process.stderr.write(
+            `Failed to send digest to ${recipient} in batch ${batchIndex + 1} by worker ${workerId}: ${errorToReason(error)}\n`
+          );
+          continue;
+        }
       }
 
       process.stdout.write(`Batch ${batchIndex + 1}/${batches.length} finished by worker ${workerId}.\n`);
@@ -374,6 +447,11 @@ async function main(): Promise<void> {
     if (args.send) {
       const storedDigest = await loadStoredDigestArtifacts(outputDir, dateLabel);
       const recipientResult = await loadRecipients(config);
+      if (recipientResult.recipients.length === 0) {
+        throw new Error(
+          `No valid recipients available after filtering invalid addresses from ${recipientResult.source}.`
+        );
+      }
       await sendRecipientsInParallelBatches(config, dateLabel, storedDigest, recipientResult.recipients);
 
       const state = await markSendComplete(outputDir, dateLabel);
@@ -396,6 +474,9 @@ async function main(): Promise<void> {
       if (recipientResult.recipients.length > 0) {
         process.stdout.write(`Recipients: ${recipientResult.recipients.join(", ")}\n`);
       }
+      if (recipientResult.skippedInvalid.length > 0) {
+        process.stdout.write(`Skipped invalid recipients: ${recipientResult.skippedInvalid.join(", ")}\n`);
+      }
       process.stdout.write(
         `Send fanout config: batch_size=${config.digestSendBatchSize}, parallel_batches=${config.digestSendParallelBatches}\n`
       );
@@ -410,7 +491,8 @@ async function main(): Promise<void> {
     const client = new AgentmailClient(config);
     const messages = await client.fetchMessagesForDate(dateLabel);
     const summarizedMessages = await applyAiSummaries(config, messages);
-    const digest = buildDigest(dateLabel, summarizedMessages, config.digestMaxItems);
+    const orderedMessages = prioritizeRundownAiFirst(summarizedMessages);
+    const digest = buildDigest(dateLabel, orderedMessages, config.digestMaxItems);
 
     const storedPaths = await storeDigestArtifacts(outputDir, dateLabel, digest);
     await markBuildComplete(outputDir, dateLabel);

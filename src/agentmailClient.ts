@@ -79,6 +79,21 @@ function extractText(input: Record<string, unknown>): string {
   return flattenStrings(input.body).trim();
 }
 
+function cleanupExtractedHtml(htmlContent: string): string {
+  if (!htmlContent.trim()) {
+    return "";
+  }
+
+  let cleaned = htmlContent.trim();
+  cleaned = cleaned.replace(/^<html[^>]*>/gi, "");
+  cleaned = cleaned.replace(/<\/html>$/gi, "");
+  cleaned = cleaned.replace(/^<body[^>]*>/gi, "");
+  cleaned = cleaned.replace(/<\/body>$/gi, "");
+  cleaned = cleaned.replace(/^<!DOCTYPE[^>]*>/gi, "");
+
+  return cleaned.trim();
+}
+
 function extractHtml(input: Record<string, unknown>): string {
   const direct = pickFirstString(input, ["extracted_html", "extractedHtml", "html", "html_body", "htmlBody", "body_html", "bodyHtml"]);
   if (direct) {
@@ -339,7 +354,9 @@ export class AgentmailClient {
     const source = pickFirstString(row, ["from", "sender", "sender_email", "from_email", "fromEmail"]);
     const subject = pickFirstString(row, ["subject", "title"], "(No subject)");
     const textContent = extractText(row);
-    const htmlContent = extractHtml(row);
+    let htmlContent = extractHtml(row);
+
+    htmlContent = cleanupExtractedHtml(htmlContent);
 
     const htmlExtract = extractLinksAndImagesFromHtml(htmlContent);
     const attachmentImages = extractAttachmentImages(row);

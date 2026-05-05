@@ -8,3 +8,6 @@ output/
 
 data/subscribers.json
 data/feedback.jsonl
+
+# Private retrospective notes (kept local, never committed)
+notes/PROJECT_LEARNINGS_PRIVATE.md
